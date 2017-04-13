@@ -3,6 +3,8 @@ class ShortenedUrl < ActiveRecord::Base
 
   validates :short_url, uniqueness: true
   validates :long_url, presence: true
+  validate :no_spamming
+  validate :nonpremium_max
 
   belongs_to :submitter,
     primary_key: :id,
@@ -18,6 +20,15 @@ class ShortenedUrl < ActiveRecord::Base
     #Proc.new { distinct },
     through: :visits,
     source: :user
+
+  has_many :taggings,
+    primary_key: :id,
+    foreign_key: :shortened_url_id,
+    class_name: "Tagging"
+
+    has_many :tag_topics,
+      through: :taggings,
+      source: :tag_topic
 
   def self.random_code
     code = SecureRandom.urlsafe_base64
@@ -43,6 +54,24 @@ class ShortenedUrl < ActiveRecord::Base
   end
 
   def num_recent_uniques
-    visitors.select(:user_id).distinct.where("updated_at < Time.now - 10.minutes").count
+    visitors.select(:user_id).distinct.where(updated_at: (Time.now - 10.minutes)..Time.now).count
+  end
+
+  private
+  def no_spamming
+    if self.submitter.submitted_urls.count >= 5
+      least_recent = self.submitter.submitted_urls[-5]
+      if least_recent.created_at > Time.now - 5.second
+        errors[:spam] << "No spamming! Only 5 URL's per minute."
+      end
+    end
+  end
+
+  def nonpremium_max
+    unless self.submitter.premium
+      if self.submitter.submitted_urls.count >= 5
+        errors[:nonpremium] << "Not premium. Max 5 reached."
+      end
+    end
   end
 end
